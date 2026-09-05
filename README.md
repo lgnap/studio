@@ -16,6 +16,14 @@ deciding whether it fits your use.
 Grouped by area rather than listed change by change. The detail is in `TESTING.md` and the commit
 history.
 
+**Web server**
+
+- The web server binds the loopback interface by default. It used to listen on every interface, so
+  any machine on the same network reached an API that has no authentication and that lists, reads,
+  writes and deletes in the library. `-Dstudio.host` and `-Dstudio.port` override the address, and
+  the frontend no longer names a port anywhere: it uses whatever origin served the page.
+- A port already in use is reported instead of leaving a running process that serves nothing.
+
 **Device and transport**
 
 - The partition search waits for the OS to mount the device instead of giving up after ten seconds,
@@ -136,6 +144,20 @@ Based on STUdio by [@marian-m12l](https://github.com/marian-m12l), whose reverse
 this exists on top of. Licence, attribution and disclaimers are unchanged and reproduced below. The
 fork can be rebased on upstream if it becomes active again; until then the changes above are
 maintained here.
+
+## Code from other forks
+
+Parts of this fork come from other people's forks rather than from upstream. They are listed here
+because the licence alone does not say who did the work.
+
+**Configurable listen host and port** — from [@kairoh](https://github.com/kairoh)'s fork, commit
+[`74f53cc`](https://github.com/kairoh/studio/commit/74f53cc57b70734e015f0cd31f036ca57ff3ea47)
+("Configurable listen host and port", 2 April 2022), which predates that fork's move to Quarkus and
+so applied to the same Vert.x code this fork still runs. Taken from it: reading the host and port
+from configuration instead of hard-coding them, deriving the CORS pattern and the browser URL from
+the host, and serving the whole web UI from relative URLs so the frontend stops naming a port. Not
+taken from it: binding to the loopback by default, and reporting a failed bind — that commit keeps
+`listen(port)`, which still accepts connections on every interface. Both projects are MPL-2.0.
 
 ---
 

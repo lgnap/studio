@@ -61,10 +61,22 @@ public class MainVerticle extends AbstractVerticle {
         }
 
 
+        // Making the host and port configurable, and deriving the CORS pattern and the browser URL
+        // from them, comes from kairoh's fork — commit 74f53cc, "Configurable listen host and
+        // port" (2022-04-02), MPL-2.0 like this file. See "Code from other forks" in the README.
+        //
+        // Listen address. The loopback default is deliberate: this is a desktop application whose
+        // UI is served to a browser on the same machine, and the API below is unauthenticated —
+        // it lists, reads, writes and deletes in the user's library, and drives the device. Bound
+        // to every interface, as `listen(8080)` did, any host on the same network segment reached
+        // it. Overriding the host is possible, but it is now an explicit choice.
+        String host = System.getProperty("studio.host", "127.0.0.1");
+        int port = Integer.parseInt(System.getProperty("studio.port", "8080"));
+
         Router router = Router.router(vertx);
 
         // Handle cross-origin calls
-        router.route().handler(CorsHandler.create("http://localhost:.*")
+        router.route().handler(CorsHandler.create("http://" + host + ":.*")
                 .allowedMethods(Set.of(
                         HttpMethod.GET,
                         HttpMethod.POST
@@ -97,16 +109,30 @@ public class MainVerticle extends AbstractVerticle {
             errorHandler.handle(ctx);
         });
 
-        // Start HTTP server
-        vertx.createHttpServer().requestHandler(router).listen(8080);
+        // Start HTTP server. The handler is not optional: `listen()` without one discards the
+        // failure, and a port already in use then leaves a running process that serves nothing
+        // and says nothing. The browser is opened only once the socket is actually bound.
+        String url = "http://" + host + ":" + port;
+        vertx.createHttpServer().requestHandler(router).listen(port, host, ar -> {
+            if (ar.failed()) {
+                LOGGER.error("Failed to listen on " + host + ":" + port
+                        + " - the port may already be in use. Set -Dstudio.port to another one.",
+                        ar.cause());
+                return;
+            }
+            LOGGER.info("Listening on " + url);
+            openInBrowser(url);
+        });
+    }
 
+    private void openInBrowser(String url) {
         // Automatically open URL in browser, unless instructed otherwise
         String openBrowser = System.getProperty("studio.open", "true");
         if (Boolean.valueOf(openBrowser)) {
             LOGGER.info("Opening URL in default browser...");
             if (Desktop.isDesktopSupported()) {
                 try {
-                    Desktop.getDesktop().browse(new URI("http://localhost:8080"));
+                    Desktop.getDesktop().browse(new URI(url));
                 } catch (Exception e) {
                     LOGGER.error("Failed to open URL in default browser", e);
                 }
