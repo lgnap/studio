@@ -75,7 +75,7 @@ Nothing here touches a device. Fixtures are synthesised in code; no device data 
 
 | Suite | Tests |
 | --- | --- |
-| Java, standard | **282**, 14 skipped — the opt-in FAT32 classes, and two link cases each of which only one platform can set up |
+| Java, standard | **287**, 14 skipped — the opt-in FAT32 classes, and two link cases each of which only one platform can set up |
 | Java, with `-Dstudio.test.fat32.root=<volume>` | last measured at **172** before the C6d-5 additions; not re-measured since, because it needs the volume mounted |
 | JavaScript | **57** |
 
@@ -121,6 +121,7 @@ counts.
 | When a conversion is proven to match its source, and every reason it is not | `ConversionVerificationTest` | `web-ui` module; **specifications** — only MATCH removes a confirmation; a path outside the library is refused rather than answered |
 | Where a library operation may reach: direct children only, links refused, nominal cases intact | `LibraryPathConfinementTest` | `web-ui` module; **specifications** — converted from characterization once the confinement existed. The symbolic-link case is Linux-only and the junction case Windows-only |
 | A conversion releases its source and its temporary even when the reader or writer throws | `ConversionStreamLifecycleTest` | `web-ui` module; **specifications** — asserts the consequence by deleting the work folder, so the three failure cases are Windows-only |
+| Which interfaces the web server accepts connections on, and what an occupied port does | `ServerBindingTest` | `web-ui` module; **specifications** — deploys the real `MainVerticle` with `env=dev` and every path pointed at a temporary directory, so no device and no network are touched. The two cases needing a non-loopback address are skipped on a machine that has none. Deliberately silent on the log message and on the browser, which have no seam |
 
 Web UI (`web-ui/javascript`, run by yarn):
 
