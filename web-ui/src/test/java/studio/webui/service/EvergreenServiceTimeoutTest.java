@@ -46,15 +46,17 @@ import static org.junit.jupiter.api.Assertions.fail;
  * requests and the second must be bounded too.
  *
  * <p>The nominal two-hop path is pinned as a control, against the same local server answering
- * properly: it proves the seam still routes both hosts and that the timeout does not fire when the
- * server is merely slow to be asked.
+ * properly: it proves the seam still routes both hosts. The controls test the routing, not the
+ * speed, so they get their own service with the production timeout: given the short timeout of the
+ * stalling cases, they would race the first requests of a cold JVM and fail on a slow machine.
+ * The fake answers with literal bodies, so it costs nothing to encode them either.
  */
 class EvergreenServiceTimeoutTest {
 
-    /** The service's timeout under test — short, so a stalled request is a wait of milliseconds. */
-    private static final long TIMEOUT_MS = 300;
-    /** How long a test waits for the future: generously above the timeout, far below "forever". */
-    private static final long BOUND_MS = 5_000;
+    /** The timeout of the stalling cases: short, so a stalled request is a wait of milliseconds. */
+    private static final long STALL_TIMEOUT_MS = 300;
+    /** How long a test waits for the future: above both timeouts, far below "forever". */
+    private static final long BOUND_MS = 2 * EvergreenService.HTTP_TIMEOUT_MS;
 
     private Vertx vertx;
     private HttpServer server;
@@ -92,7 +94,7 @@ class EvergreenServiceTimeoutTest {
             return;
         }
         if (request.path().equals(EvergreenService.GITHUB_API_LATEST_RELEASE)) {
-            request.response().end(new JsonObject().put("name", "9.9.9").encode());
+            request.response().end("{\"name\":\"9.9.9\"}");
         } else if (request.path().equals(EvergreenService.GITHUB_API_ANNOUNCE_COMMIT.replaceAll("\\?.*", ""))) {
             request.response().end("[{\"commit\":{\"committer\":{\"date\":\"2021-01-02T03:04:05Z\"}}}]");
         } else if (request.path().equals(EvergreenService.GITHUB_API_ANNOUNCE_CONTENT)) {
@@ -102,9 +104,19 @@ class EvergreenServiceTimeoutTest {
         }
     }
 
-    private EvergreenService service() {
+    /** A service whose requests to the fake are failed after the short timeout. */
+    private EvergreenService stallingService() {
+        return service(STALL_TIMEOUT_MS);
+    }
+
+    /** A service with the production timeout, for the controls, which must not race the clock. */
+    private EvergreenService answeringService() {
+        return service(EvergreenService.HTTP_TIMEOUT_MS);
+    }
+
+    private EvergreenService service(long timeoutMs) {
         // Both GitHub hosts point at the fake, which tells them apart by path.
-        return new EvergreenService(vertx, "127.0.0.1", "127.0.0.1", port, false, TIMEOUT_MS);
+        return new EvergreenService(vertx, "127.0.0.1", "127.0.0.1", port, false, timeoutMs);
     }
 
     /** Waits for the Vert.x future within the bound, failing the test if it never completes. */
@@ -132,7 +144,7 @@ class EvergreenServiceTimeoutTest {
     void latestFailsFastWhenGitHubStalls() throws Exception {
         stalledPaths.add(EvergreenService.GITHUB_API_LATEST_RELEASE);
 
-        assertTimedOut(awaitWithinBound(service().latest()));
+        assertTimedOut(awaitWithinBound(stallingService().latest()));
     }
 
     @Test
@@ -140,7 +152,7 @@ class EvergreenServiceTimeoutTest {
     void announceFailsFastWhenCommitLookupStalls() throws Exception {
         stalledPaths.add(EvergreenService.GITHUB_API_ANNOUNCE_COMMIT.replaceAll("\\?.*", ""));
 
-        assertTimedOut(awaitWithinBound(service().announce()));
+        assertTimedOut(awaitWithinBound(stallingService().announce()));
     }
 
     @Test
@@ -150,13 +162,13 @@ class EvergreenServiceTimeoutTest {
         // request would leave this path hanging exactly as before.
         stalledPaths.add(EvergreenService.GITHUB_API_ANNOUNCE_CONTENT);
 
-        assertTimedOut(awaitWithinBound(service().announce()));
+        assertTimedOut(awaitWithinBound(stallingService().announce()));
     }
 
     @Test
     @DisplayName("announce() still chains both requests when GitHub answers")
     void announceStillWorksWhenGitHubAnswers() throws Exception {
-        AsyncResult<JsonObject> result = awaitWithinBound(service().announce());
+        AsyncResult<JsonObject> result = awaitWithinBound(answeringService().announce());
 
         assertTrue(result.succeeded(), "got " + result.cause());
         assertEquals("2021-01-02T03:04:05Z", result.result().getString("date"));
@@ -166,7 +178,7 @@ class EvergreenServiceTimeoutTest {
     @Test
     @DisplayName("latest() still returns the release when GitHub answers")
     void latestStillWorksWhenGitHubAnswers() throws Exception {
-        AsyncResult<JsonObject> result = awaitWithinBound(service().latest());
+        AsyncResult<JsonObject> result = awaitWithinBound(answeringService().latest());
 
         assertTrue(result.succeeded(), "got " + result.cause());
         assertEquals("9.9.9", result.result().getString("name"));
