@@ -30,6 +30,7 @@ import studio.webui.service.mock.MockStoryTellerService;
 import java.awt.*;
 import java.net.URI;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class MainVerticle extends AbstractVerticle {
 
@@ -76,22 +77,31 @@ public class MainVerticle extends AbstractVerticle {
     static final int LISTEN_PORT = 8080;
 
     /**
-     * The origins the API answers: this machine asking about itself, under any of the loopback's
-     * names and on any port.
+     * The origins the API answers, as the pattern {@link CorsHandler} matches whole: exactly the
+     * origin this server serves, under the two names it is reached by — {@code localhost}, which the
+     * application opens in the browser, and {@link #listenHost()}, which a user may type instead —
+     * on {@link #LISTEN_PORT} and no other port.
      *
-     * <p>{@code http://localhost:.*} alone was not enough once the server stopped binding to every
-     * interface. {@link #listenHost()} is an address, not a name, so the URL the application opens
-     * in the browser is {@code http://127.0.0.1:8080} — and a browser sends {@code Origin} on a POST
-     * even when it is same-origin, so the page the application had just opened was refused by the
-     * application that opened it. The event bus handshake is a POST, so device monitoring never
-     * connected.
+     * <p>Derived from what the server serves rather than written as a pattern over {@code localhost}.
+     * The pattern this replaces, {@code http://localhost:.*}, had both faults the derivation removes:
+     * it trusted every port of the machine, so any page on a {@code localhost} origin (another
+     * project's development server, a local tool with an XSS) could drive this unauthenticated API;
+     * and it refused {@code http://127.0.0.1:8080}, the address the server binds, so a user who typed
+     * it got reads that worked and every state-changing call refused, because a browser sends
+     * {@code Origin} on a POST even when it is same-origin.
      *
-     * <p>Kept as a list of loopback spellings rather than widened to {@code *}: this API has no
-     * authentication, and whatever a page on another origin could reach here, it could reach in the
-     * browser of anyone who visits it. Ports stay open-ended because the development server picks
-     * its own.
+     * <p>No exception for the development server. {@code yarn start} serves the page from its own
+     * port, but its proxy carries {@code /api} and {@code /eventbus} to this server and rewrites the
+     * {@code Origin} it forwards to this one (see {@code src/setupProxy.js}), so one configuration
+     * holds in every environment. {@code [::1]} is not listed: the server binds an IPv4 address, so
+     * nothing reaches it under that name.
+     *
+     * <p>Worked out in issue #46. A method, like {@link #listenHost()}, so that the test reads the
+     * value production uses rather than a copy inlined at compile time.
      */
-    static final String LOOPBACK_ORIGINS = "http://(localhost|127\\.0\\.0\\.1|\\[::1\\]):\\d+";
+    static String allowedOrigins() {
+        return "http://(localhost|" + Pattern.quote(listenHost()) + "):" + LISTEN_PORT;
+    }
 
     private final Logger LOGGER = LoggerFactory.getLogger(MainVerticle.class);
 
@@ -124,7 +134,7 @@ public class MainVerticle extends AbstractVerticle {
         Router router = Router.router(vertx);
 
         // Handle cross-origin calls
-        router.route().handler(CorsHandler.create(LOOPBACK_ORIGINS)
+        router.route().handler(CorsHandler.create(allowedOrigins())
                 .allowedMethods(Set.of(
                         HttpMethod.GET,
                         HttpMethod.POST

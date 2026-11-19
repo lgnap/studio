@@ -71,8 +71,8 @@ class App extends React.Component {
         // URL '...' is invalid"), so '/eventbus' would throw at construction. The origin still
         // follows whatever host and port served the page, which is the point.
         console.log("Setting up vert.x event bus channel...");
-        const eventBusOrigin = process.env.REACT_APP_EVENTBUS_ORIGIN || window.location.origin;
-        const channel = createEventBusChannel(eventBusOrigin + '/eventbus', {
+        // Under `yarn start` the development server proxies /eventbus to the backend (setupProxy.js).
+        const channel = createEventBusChannel(window.location.origin + '/eventbus', {
             onStateChange: state => this.onChannelStateChange(state)
         });
 

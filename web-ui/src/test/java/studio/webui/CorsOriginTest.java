@@ -37,23 +37,19 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /**
  * Which origins the API answers.
  *
- * <p>The application serves its own UI and then opens a browser on it, at
- * {@link MainVerticle#listenHost()} — {@code 127.0.0.1} since the server stopped binding to every
- * interface. The CORS policy, written when the server was reached by name, allowed
- * {@code http://localhost:} and nothing else. A browser sends an {@code Origin} header on a POST
- * even when it is same-origin, so the page the application had just opened was refused by the
- * application that opened it: every SockJS request of the event bus handshake answered
- * {@code 403 CORS Rejected - Invalid origin}, and the UI lost device monitoring entirely, retrying
- * for as long as it stayed open.
- *
- * <p>The rule is one sentence: <strong>the loopback is one host under several names</strong>. Whether
- * the address bar says {@code localhost}, {@code 127.0.0.1} or {@code [::1]}, it is the machine
- * asking about itself, and the answer must not depend on the spelling.
+ * <p>The rule, from issue #46: <strong>exactly the origin this server serves</strong>, under the two
+ * names it is reached by — {@code localhost}, which the application opens in the browser, and
+ * {@link MainVerticle#listenHost()}, which a user may type — on {@link MainVerticle#LISTEN_PORT}
+ * and no other port. The policy it replaces, {@code http://localhost:.*}, refused
+ * {@code http://127.0.0.1:8080} — a browser sends {@code Origin} on a POST even when it is
+ * same-origin, so a user who typed the address the server binds got reads that worked and every
+ * state-changing call refused — and trusted every other port of the machine, so any page on a
+ * {@code localhost} origin could drive this unauthenticated API.
  *
  * <p>Acceptance alone would be a poor test of an origin policy — a server that allowed everything
- * would pass it — so a foreign origin is refused here with equal weight. That is also what keeps the
- * fix from quietly becoming {@code *}: this API has no authentication, and a page on another origin
- * must not be able to read the library through the browser of whoever visits it.
+ * would pass it — so the refusals carry equal weight: foreign hosts, near-miss spellings of the
+ * loopback, and the loopback on a foreign port, the development server's included, since it reaches
+ * this server through its proxy and not from the browser.
  *
  * <p>Like {@link StaticResourceConfinementTest}, this deploys the real {@link MainVerticle}, because
  * the property under test is the router's configuration rather than a handler in isolation. It costs
@@ -120,45 +116,64 @@ class CorsOriginTest {
     @Test
     @DisplayName("the origin the application opens in the browser is answered")
     void theApplicationsOwnOriginIsAnswered() {
-        String ownOrigin = "http://" + MainVerticle.listenHost() + ":" + MainVerticle.LISTEN_PORT;
+        // MainVerticle opens the browser on http://localhost:8080.
+        String ownOrigin = "http://localhost:" + MainVerticle.LISTEN_PORT;
 
         String response = getWithOrigin("/api/device/infos", ownOrigin);
 
         assertFalse(response.contains(REFUSAL),
-                "the application opens the browser on " + ownOrigin + " and then refuses it; the "
-                        + "event bus handshake cannot complete. The response was:\n" + response);
+                "the application opens the browser on " + ownOrigin + " and then refuses it. The "
+                        + "response was:\n" + response);
     }
 
     @Test
-    @DisplayName("the loopback is answered whatever it is spelled")
-    void everySpellingOfTheLoopbackIsAnswered() {
-        for (String origin : List.of("http://localhost:" + MainVerticle.LISTEN_PORT,
-                "http://127.0.0.1:" + MainVerticle.LISTEN_PORT,
-                "http://[::1]:" + MainVerticle.LISTEN_PORT,
-                // The development server, which proxies to this one and is where the UI is worked on.
-                "http://localhost:3000",
-                "http://127.0.0.1:3000")) {
-            String response = getWithOrigin("/api/device/infos", origin);
-            assertFalse(response.contains(REFUSAL),
-                    "`" + origin + "` is this machine asking about itself and must be answered; the "
-                            + "response was:\n" + response);
-        }
+    @DisplayName("the address the server binds is answered too, typed rather than opened")
+    void theListenAddressIsAnswered() {
+        String typedOrigin = "http://" + MainVerticle.listenHost() + ":" + MainVerticle.LISTEN_PORT;
+
+        String response = getWithOrigin("/api/device/infos", typedOrigin);
+
+        assertFalse(response.contains(REFUSAL),
+                "a user who types " + typedOrigin + " reaches this very server; refusing its POSTs "
+                        + "leaves reads working and every state-changing call refused. The response "
+                        + "was:\n" + response);
     }
 
     @Test
-    @DisplayName("a page on another origin is still refused")
+    @DisplayName("a page on another origin is refused")
     void aForeignOriginIsRefused() {
         // The API has no authentication: whatever a page on another origin could reach here, it
         // could reach in the browser of anyone who visits it.
         for (String origin : List.of("http://studio.example.com",
                 "https://studio.example.com",
                 "http://localhost.example.com:8080",
-                "http://127.0.0.1.example.com:8080")) {
-            String response = getWithOrigin("/api/device/infos", origin);
-            assertTrue(response.contains(REFUSAL),
-                    "`" + origin + "` is not this machine and must be refused; the response was:\n"
-                            + response);
+                "http://127.0.0.1.example.com:8080",
+                // The scheme is part of the origin.
+                "https://localhost:" + MainVerticle.LISTEN_PORT)) {
+            assertRefused(origin);
         }
+    }
+
+    @Test
+    @DisplayName("the loopback on any other port is refused, the development server's included")
+    void anotherPortOfTheLoopbackIsRefused() {
+        // Another port of this machine is another origin: another project's development server, a
+        // local tool with an XSS. `yarn start` needs no exception, because its proxy carries the
+        // requests to this server and rewrites the Origin it forwards (src/setupProxy.js).
+        for (String origin : List.of("http://localhost:1",
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:" + (MainVerticle.LISTEN_PORT + 1),
+                "http://localhost:" + MainVerticle.LISTEN_PORT + "0")) {
+            assertRefused(origin);
+        }
+    }
+
+    private void assertRefused(String origin) {
+        String response = getWithOrigin("/api/device/infos", origin);
+        assertTrue(response.contains(REFUSAL),
+                "`" + origin + "` is not the origin this server serves and must be refused; the "
+                        + "response was:\n" + response);
     }
 
     /** Status line and body of a GET carrying an {@code Origin}, as one string. */
