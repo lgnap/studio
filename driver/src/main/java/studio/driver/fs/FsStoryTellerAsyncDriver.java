@@ -219,6 +219,11 @@ public class FsStoryTellerAsyncDriver {
         // card, FORMATS.md §2). It used to be read as one digit per component, which dropped the
         // patch level and would misread "3.10" as 3.1. The field is read whole; the serial and the
         // key material keep their offsets.
+        // The major is not display-only: copyPack refuses anything but firmware 2 or 3 and picks the
+        // V2 or V3 cipher and boot file from it. Reading the field up to its NUL rests on the field
+        // being NUL-terminated after a short version, which was measured on one card only (3.2.3).
+        // A device carrying something else after a short version could now be refused, where the old
+        // parser read it.
         String firmware = readAsciiString(deviceMetadataFis, FIRMWARE_FIELD_LENGTH);
         String[] components = firmware.split("\\.");
         if (components.length < 2) {
