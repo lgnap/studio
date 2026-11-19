@@ -79,13 +79,13 @@ Nothing here touches a device. Fixtures are synthesised in code; no device data 
 | Java, with `-Dstudio.test.fat32.root=<volume>` | last measured at **172** before the C6d-5 additions; not re-measured since, because it needs the volume mounted |
 | JavaScript | **57** |
 
-The `agent` module has no tests, and that is a decision rather than an oversight. It is a Java
+The `agent` module is untested. It is a Java
 agent (`-javaagent`) that instruments the official Luniistore application with Byte Buddy —
 `HttpURLConnection` and one of Luniistore's own DTO classes — to let it show unofficial packs. Its
 behaviour only exists inside a process this project does not ship, against classes whose names and
 shapes belong to a third party. A test would either mock those classes into meaninglessness or
-require the Luniistore installed; neither establishes anything. The module is 261 lines, changes
-rarely, and its two advice classes are exercised by hand when the Luniistore updates.
+require the Luniistore installed; neither establishes anything. Nobody checks it by hand either, so
+whether it still works against the current Luniistore is not known.
 
 On Linux the Java totals are the same with a higher skip count, because the Windows-only cases are
 skipped rather than absent.
